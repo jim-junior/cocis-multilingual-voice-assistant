@@ -14,7 +14,7 @@
 
 **Dataset**: [https://huggingface.co/datasets/jimjunior/cocis-web-info](https://huggingface.co/datasets/jimjunior/cocis-web-info)
 
-**Application API Docker Image**: `TODO`
+**Application API Docker Image**: `jimjuniorb/cmva`
 
 **Application UI Endpoint**: TODO
 
