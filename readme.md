@@ -10,9 +10,7 @@
 
 **Model Training Notebook(Google Colab)**: TODO
 
-**Inference Notebook(Kaggle)**: TODO
-
-**Hugggingface Model**: TODO
+**Inference Notebook**: [https://colab.research.google.com/drive/1jIyoFqOsaM_kGngYK7WgmjnWNVzOGxMP?usp=sharing](https://colab.research.google.com/drive/1jIyoFqOsaM_kGngYK7WgmjnWNVzOGxMP?usp=sharing)
 
 **Dataset**: [https://huggingface.co/datasets/jimjunior/cocis-web-info](https://huggingface.co/datasets/jimjunior/cocis-web-info)
 
