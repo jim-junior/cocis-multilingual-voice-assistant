@@ -1,13 +1,17 @@
 """
 model.py — COCIS Assistant: RAG + Multilingual Translation
 All heavy model loading and inference is encapsulated in COCISAssistant.
+
+At runtime this module loads ONLY from local disk — no network calls.
+The dataset, embeddings, FAISS index, and all model weights are baked
+into the Docker image by prebuild.py during `docker build`.
 """
 
+import json
 import logging
 import numpy as np
 import faiss
 import torch
-from datasets import load_dataset
 from sentence_transformers import SentenceTransformer
 from transformers import (
     AutoTokenizer,
@@ -16,6 +20,11 @@ from transformers import (
 )
 
 logger = logging.getLogger("cocis-model")
+
+# Paths written by prebuild.py — baked into the image layer
+_DATA_DIR = "/app/data"
+_FAISS_PATH = f"{_DATA_DIR}/faiss.index"
+_CHUNKS_PATH = f"{_DATA_DIR}/chunks.json"
 
 
 # ─── Language Code Map ────────────────────────────────────────────────────────
@@ -31,47 +40,40 @@ class COCISAssistant:
     End-to-end COCIS multilingual RAG assistant.
 
     Pipeline:
-        1. Embed knowledge base chunks with SentenceTransformer → FAISS index
+        1. Load pre-built FAISS index + chunks from disk (built at image build time)
         2. At query time, translate input → English (NLLB)
         3. Retrieve top-k chunks from FAISS
         4. Generate answer with Phi-4-mini-instruct
         5. Translate answer → target language (NLLB)
     """
 
-    # ── Model names (easy to swap) ───────────────────────────────────────────
+    # ── Model names — weights are pre-cached in HF_HOME by prebuild.py ───────
     EMBED_MODEL_NAME = "all-MiniLM-L6-v2"
     LLM_MODEL_NAME = "microsoft/Phi-4-mini-instruct"
     TRANSLATE_MODEL_NAME = "facebook/nllb-200-distilled-600M"
-    DATASET_NAME = "jimjunior/cocis-web-info"
 
     def __init__(self) -> None:
-        self._load_dataset()
-        self._load_embed_model()
-        self._build_faiss_index()
-        self._load_llm()
-        self._load_translation_model()
+        self._load_chunks_and_index()   # fast — reads local files
+        self._load_embed_model()        # fast — local HF cache
+        self._load_llm()                # slow — GPU model load
+        self._load_translation_model()  # moderate — CPU model load
 
-    # ─── Data ────────────────────────────────────────────────────────────────
-    def _load_dataset(self) -> None:
-        logger.info(f"Loading dataset: {self.DATASET_NAME}")
-        dataset = load_dataset(self.DATASET_NAME)
-        self.chunks: list[str] = [row["text"] for row in dataset["train"]]
+    # ─── Data: load from pre-baked disk files ────────────────────────────────
+    def _load_chunks_and_index(self) -> None:
+        logger.info(f"Loading chunks from {_CHUNKS_PATH}")
+        with open(_CHUNKS_PATH, "r", encoding="utf-8") as f:
+            self.chunks: list[str] = json.load(f)
         logger.info(f"Loaded {len(self.chunks)} chunks.")
 
-    # ─── Embeddings + FAISS ──────────────────────────────────────────────────
+        logger.info(f"Loading FAISS index from {_FAISS_PATH}")
+        self.index = faiss.read_index(_FAISS_PATH)
+        logger.info(f"FAISS index loaded: {self.index.ntotal} vectors.")
+
+    # ─── Embeddings (query-time only — index already built) ──────────────────
     def _load_embed_model(self) -> None:
         logger.info(f"Loading embedding model: {self.EMBED_MODEL_NAME}")
         self.embed_model = SentenceTransformer(self.EMBED_MODEL_NAME)
-
-    def _build_faiss_index(self) -> None:
-        logger.info("Building FAISS index...")
-        embeddings = self.embed_model.encode(
-            self.chunks, show_progress_bar=True)
-        dimension = embeddings.shape[1]
-        self.index = faiss.IndexFlatL2(dimension)
-        self.index.add(np.array(embeddings))
-        logger.info(
-            f"FAISS index built with {self.index.ntotal} vectors (dim={dimension}).")
+        logger.info("Embedding model loaded.")
 
     def retrieve(self, query: str, k: int = 3) -> list[str]:
         """Return the top-k most relevant chunks for a query."""

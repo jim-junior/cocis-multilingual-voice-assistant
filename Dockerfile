@@ -35,11 +35,22 @@ RUN python3 -m venv /opt/venv && \
 
 COPY api/main.py /app/main.py
 COPY api/model.py /app/model.py
+COPY prebuild.py  /app/prebuild.py
 
+# ── 4. Bake data into the image at build time ─────────────────────────────────
+#
+#   prebuild.py does the following (once, during `docker build`):
+#     • Downloads the HuggingFace dataset → /app/data/chunks.json
+#     • Computes SentenceTransformer embeddings → /app/data/faiss.index
+#     • Downloads + caches all model weights → /app/.cache/huggingface
+#
+#   The running container loads everything from local disk.
+#   Cold start no longer downloads anything from the network.
+#
+RUN python /app/prebuild.py
 
-
+# ── 5. Cloud Run expects the container to listen on $PORT ─────────────────────
 EXPOSE 8080
 
-# 5. Start uvicorn, binding to the Cloud Run-injected $PORT
-# exec form so uvicorn is PID 1 and receives SIGTERM from Cloud Run gracefully.
+# exec form → uvicorn is PID 1 and receives SIGTERM from Cloud Run gracefully
 CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${PORT} --workers 1"]
